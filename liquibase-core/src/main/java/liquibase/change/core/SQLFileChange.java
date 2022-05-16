@@ -150,7 +150,7 @@ public class SQLFileChange extends AbstractSQLChange {
     public String getSql() {
         String sql = super.getSql();
         if (sql == null) {
-            InputStream sqlStream;
+            InputStream sqlStream = null;
             try {
                 sqlStream = openSqlStream();
                 if (sqlStream == null) {
@@ -166,6 +166,14 @@ public class SQLFileChange extends AbstractSQLChange {
                 return content;
             } catch (IOException e) {
                 throw new UnexpectedLiquibaseException(e);
+            } finally {
+                if (sqlStream != null) {
+                    try {
+                        sqlStream.close();
+                    } catch (IOException ignored) {
+
+                    }
+                }
             }
         } else {
             return sql;
