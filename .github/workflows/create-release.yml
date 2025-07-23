@@ -55,12 +55,12 @@ on:
         type: boolean
         default: false
     outputs:
-      dry_run_zip_url:
-        description: "The URL of the created zip file"
-        value: ${{ jobs.build-installers.outputs.dry_run_zip_url }}
-      dry_run_tar_gz_url:
-        description: "The URL of the created tar.gz file"
-        value: ${{ jobs.build-installers.outputs.dry_run_tar_gz_url }}
+      dry_run_zip_url_encoded:
+        description: "The Base64 encoded URL of the created zip file"
+        value: ${{ jobs.build-installers.outputs.dry_run_zip_url_encoded }}
+      dry_run_tar_gz_url_encoded:
+        description: "The Base64 encoded URL of the created tar.gz file"
+        value: ${{ jobs.build-installers.outputs.dry_run_tar_gz_url_encoded }}
 
 env:
   DEPENDENCIES: "liquibase-bigquery" # Comma separated list of dependencies to release the extensions list
@@ -373,6 +373,9 @@ jobs:
     needs: [setup, reversion]
     name: Build Installers
     runs-on: ubuntu-22.04
+    outputs:
+      dry_run_zip_url_encoded: ${{ steps.encode-urls.outputs.dry_run_zip_url_encoded }}
+      dry_run_tar_gz_url_encoded: ${{ steps.encode-urls.outputs.dry_run_tar_gz_url_encoded }}
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -558,6 +561,33 @@ jobs:
           files: re-version/final/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Encode Release URLs
+        id: encode-urls
+        if: ${{ inputs.standalone_zip == false && inputs.dry_run == true }}
+        run: |
+          # Get release info from the just-created release
+          release_response=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                               -H "Accept: application/vnd.github.v3+json" \
+                               "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ needs.setup.outputs.version }}")
+          
+          # Extract asset URLs
+          zip_url=$(echo "$release_response" | jq -r '.assets[] | select(.name | test("^liquibase-.*\\.zip$")) | .browser_download_url')
+          tar_gz_url=$(echo "$release_response" | jq -r '.assets[] | select(.name | test("^liquibase-.*\\.tar\\.gz$")) | .browser_download_url')
+          
+          echo "Found zip URL: $zip_url"
+          echo "Found tar.gz URL: $tar_gz_url"
+          
+          # Encode URLs with Base64 to bypass GitHub masking
+          if [ -n "$zip_url" ] && [ "$zip_url" != "null" ]; then
+            encoded_zip_url=$(echo "$zip_url" | base64 -w 0)
+            echo "dry_run_zip_url_encoded=$encoded_zip_url" >> $GITHUB_OUTPUT
+          fi
+          
+          if [ -n "$tar_gz_url" ] && [ "$tar_gz_url" != "null" ]; then
+            encoded_tar_gz_url=$(echo "$tar_gz_url" | base64 -w 0)
+            echo "dry_run_tar_gz_url_encoded=$encoded_tar_gz_url" >> $GITHUB_OUTPUT
+          fi
 
       - name: Attach standalone zip to Build
         if: ${{ inputs.standalone_zip == true && inputs.dry_run == false }}
